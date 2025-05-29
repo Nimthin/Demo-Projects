@@ -1,12 +1,38 @@
-const SHEET_ID = '1iz9ew2n6cTRv-LSy432okxa6XZYBsVHdzM10_gLlWCA'; 
-const SHEET_NAME = 'Instagram - Amazon Beauty'; // Change if your tab is named differently
+// Google Sheet ID
+const SHEET_ID = '1iz9ew2n6cTRv-LSy432okxa6XZYBsVHdzM10_gLlWCA';
 
-const url = `https://opensheet.elk.sh/${SHEET_ID}/${SHEET_NAME}`;
+// API base URL
+const BASE_URL = `https://opensheet.elk.sh/${SHEET_ID}`;
 
-fetch(url)
-  .then(res => res.json())
-  .then(data => {
-    console.table(data);
-  })
-  .catch(err => console.error('❌ Error:', err));
+// Sheet name mapping
+const SHEET_NAMES: Record<Platform, Record<Brand, string>> = {
+  Instagram: {
+    'Nordstrom': 'Instagram - Nordstrom',
+    'Macys': 'Instagram - Macys',
+    'Saks': 'Instagram - Sakes',
+    'Bloomingdales': 'Instagram - Bloomingdales',
+    'Tjmaxx': 'Instagram - Tjmaxx',
+    'Sephora': 'Instagram - Sephora',
+    'Ulta': 'Instagram - Ulta',
+    'Aritzia': 'Instagram - Aritzia',
+    'American Eagle': 'Instagram - American Eagle',
+    'Walmart': 'Instagram - Walmart',
+    'Amazon Beauty': 'Instagram - Amazon Beauty',
+    'Revolve': 'Instagram - Revolve'
+  },
+  TikTok: {
+    'Nordstrom': 'TikTok - Nordstrom',
+    'Macys': 'TikTok - Macys',
+    'Saks': 'TikTok - Sakes',
+    'Bloomingdales': 'TikTok - Bloomingdales',
+    'Tjmaxx': 'TikTok - Tjmaxx',
+    'Sephora': 'TikTok - Sephora',
+    'Ulta': 'TikTok - Ulta',
+    'Aritzia': 'TikTok - Aritzia',
+    'American Eagle': 'TikTok - American Eagle',
+    'Walmart': 'TikTok - Walmart',
+    'Amazon Beauty': 'TikTok - Amazon Beauty',
+    'Revolve': 'TikTok - Revolve'
+  }
+};
 
