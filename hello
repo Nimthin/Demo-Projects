@@ -1,0 +1,12 @@
+const SHEET_ID = '1iz9ew2n6cTRv-LSy432okxa6XZYBsVHdzM10_gLlWCA'; 
+const SHEET_NAME = 'Instagram - Amazon Beauty'; // Change if your tab is named differently
+
+const url = `https://opensheet.elk.sh/${SHEET_ID}/${SHEET_NAME}`;
+
+fetch(url)
+  .then(res => res.json())
+  .then(data => {
+    console.table(data);
+  })
+  .catch(err => console.error('❌ Error:', err));
+
