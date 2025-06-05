@@ -1,0 +1,68 @@
+from instagrapi import Client
+import pandas as pd
+from datetime import datetime
+
+# --- CONFIGURATION ---
+USERNAME = "nordstrom"      # Change this to target Instagram username
+POST_LIMIT = 5              # Change this to number of recent posts to scrape
+
+# Login
+cl = Client()
+cl.login("revaji7873", "Qwerty@123")
+
+user_id = cl.user_id_from_username(USERNAME)
+
+# Fetch recent posts (default: POST_LIMIT)
+medias = cl.user_medias(user_id, amount=POST_LIMIT)
+
+if not medias:
+    print("No posts found for this user.")
+    exit()
+
+# Map media_type int to human-readable string
+MEDIA_TYPE_MAP = {
+    1: "Image",
+    2: "Video",
+    8: "Carousel"
+}
+
+all_posts = []
+
+for media in medias:
+    caption = media.caption_text or ""
+    hashtags = [tag.strip("#") for tag in caption.split() if tag.startswith("#")]
+    mentions = [tag.strip("@") for tag in caption.split() if tag.startswith("@")]
+
+    location = media.location_name if hasattr(media, "location_name") else None
+
+    media_type_str = MEDIA_TYPE_MAP.get(media.media_type, str(media.media_type))
+
+    post_data = {
+        "url": f"https://www.instagram.com/p/{media.code}/",
+        "likes": media.like_count,
+        "comments": media.comment_count,
+        "date": media.taken_at.strftime("%Y-%m-%d %H:%M"),
+        "caption": caption,
+        "location": location,
+        "media_type": media_type_str,
+        "view_count": getattr(media, "view_count", None),
+        "video_duration": getattr(media, "video_duration", None),
+    }
+
+    # Add hashtags and mentions with dynamic keys
+    for i, tag in enumerate(hashtags, start=1):
+        post_data[f"hashtag_{i}"] = tag
+
+    for i, mention in enumerate(mentions, start=1):
+        post_data[f"mention_{i}"] = mention
+
+    all_posts.append(post_data)
+
+# Prepare dataframe and save to Excel
+df = pd.DataFrame(all_posts)
+
+now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+filename = f"instagram_post_data_{now_str}.xlsx"
+df.to_excel(filename, index=False)
+
+print(f"Data saved to {filename}")
