@@ -1,0 +1,242 @@
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+const XLSX = require("xlsx");
+const fs = require("fs-extra");
+
+puppeteer.use(StealthPlugin());
+
+/* ─────────────── USER SETTINGS ─────────────── */
+const TWITTER_USERNAME = "NBhadange10";
+const TWITTER_PASSWORD = "Nikita@10";
+
+const MAX_TWEETS = 727; // how many rows to fetch
+const PROFILE_URL = "https://x.com/LandoNorris"; // any public profile URL
+/* ───────────────────────────────────────────── */
+
+function wait(ms) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+const TARGET_HANDLE = PROFILE_URL
+  .replace(/^https?:\/\/(twitter\.com|x\.com)\//i, "")
+  .split("/")[0]
+  .replace(/^@/, "")
+  .toLowerCase();
+
+async function loginToTwitter(page) {
+  console.log("🌐 Navigating to login page...");
+  try {
+    await page.goto("https://x.com/login", { 
+      waitUntil: "domcontentloaded",
+      timeout: 30000 
+    });
+
+    // Check if already logged in
+    if (page.url().includes("home")) {
+      console.log("✅ Already logged in");
+      return;
+    }
+
+    // username input
+    try {
+      await page.waitForSelector('input[name="text"], input[name="username"]', {
+        visible: true,
+        timeout: 10000,
+      });
+      const usernameInput = await page.$('input[name="text"], input[name="username"]');
+      await usernameInput.type(TWITTER_USERNAME, { delay: 50 });
+      await usernameInput.press("Enter");
+      await wait(2000);
+    } catch (err) {
+      console.log("ℹ️ Could not find username field, maybe already filled?");
+    }
+
+    // password
+    try {
+      await page.waitForSelector('input[name="password"]', {
+        visible: true,
+        timeout: 10000,
+      });
+      await page.type('input[name="password"]', TWITTER_PASSWORD, { delay: 50 });
+      await page.keyboard.press("Enter");
+      await wait(3000);
+    } catch (err) {
+      throw new Error("❌ Could not find password field. Login flow changed.");
+    }
+
+    // Wait for navigation or home feed to appear
+    try {
+      await Promise.race([
+        page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }),
+        page.waitForSelector('[data-testid="tweet"]', { timeout: 30000 })
+      ]);
+      console.log("✅ Logged in successfully!");
+    } catch (err) {
+      console.log("ℹ️ May have logged in, continuing...");
+    }
+  } catch (err) {
+    console.error("Login error:", err);
+    throw err;
+  }
+}
+
+async function scrapeTweets(page) {
+  const tweetsSeen = new Set();
+  const results = [];
+
+  while (results.length < MAX_TWEETS) {
+    try {
+      const newTweets = await page.evaluate(() => {
+        const out = [];
+        document.querySelectorAll("article").forEach((node) => {
+          try {
+            const urlElem = node.querySelector('a[href*="/status/"]');
+            const url = urlElem?.href || "";
+            const timestamp =
+              urlElem?.querySelector("time")?.getAttribute("datetime") || "";
+            const text =
+              node.querySelector('[data-testid="tweetText"]')?.innerText || "";
+
+            const s = node.querySelectorAll(
+              '[data-testid="app-text-transition-container"]'
+            );
+            const replies = s[0]?.innerText || "0";
+            const retweets = s[1]?.innerText || "0";
+            const likes = s[2]?.innerText || "0";
+            const views = s[3]?.innerText || "0";
+
+            const anchor = node.querySelector('a[href^="/"][role="link"]');
+            const authorUsername = anchor
+              ? anchor.getAttribute("href").split("/")[1]
+              : "";
+
+            const socialCtx =
+              node.querySelector('div[data-testid="socialContext"]')
+                ?.innerText || "";
+            const isRepostByPage = / reposted$/i.test(socialCtx);
+
+            out.push({
+              url,
+              timestamp,
+              text,
+              replies,
+              retweets,
+              likes,
+              views,
+              authorUsername,
+              socialCtx,
+              isRepostByPage,
+            });
+          } catch (err) {
+            console.error("Error parsing tweet:", err);
+          }
+        });
+        return out;
+      });
+
+      for (const t of newTweets) {
+        if (!t.url || tweetsSeen.has(t.url)) continue;
+
+        const isWrittenByTarget = t.authorUsername?.toLowerCase() === TARGET_HANDLE;
+        const isRepostByTarget =
+          t.isRepostByPage && t.socialCtx.toLowerCase().includes(TARGET_HANDLE);
+
+        if (!isWrittenByTarget && !isRepostByTarget) continue;
+
+        tweetsSeen.add(t.url);
+
+        const cleanedText = t.text.replace(/\n/g, " ").trim();
+        const mentions = [...cleanedText.matchAll(/@(\w{1,15})/g)].map(
+          (m) => "@" + m[1]
+        );
+        const hashtags = [...cleanedText.matchAll(/#(\w+)/g)].map(
+          (h) => "#" + h[1]
+        );
+
+        const record = {
+          Date: t.timestamp,
+          AuthorUsername: "@" + t.authorUsername,
+          Text: cleanedText,
+          Replies: t.replies,
+          Retweets: t.retweets,
+          Likes: t.likes,
+          Views: t.views,
+          URL: t.url,
+        };
+        mentions.forEach((m, idx) => {
+          record[`Mention${idx + 1}`] = m;
+        });
+        hashtags.forEach((h, idx) => {
+          record[`Hashtag${idx + 1}`] = h;
+        });
+
+        results.push(record);
+        console.log(`Tweet #${results.length}: ${record.Text.substring(0, 50)}...`);
+
+        if (results.length >= MAX_TWEETS) break;
+      }
+
+      if (results.length < MAX_TWEETS) {
+        await page.evaluate(() => window.scrollBy(0, window.innerHeight * 2));
+        await wait(3000 + Math.random() * 2000); // Random delay to appear more human
+      }
+    } catch (err) {
+      console.error("Error during scraping:", err);
+      // Try to recover by refreshing the page
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await wait(5000);
+    }
+  }
+
+  return results;
+}
+
+(async () => {
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: false,
+      args: [
+        "--start-maximized",
+        "--disable-blink-features=AutomationControlled",
+      ],
+      defaultViewport: null,
+    });
+
+    const page = await browser.newPage();
+    
+    // Set a realistic user agent
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+    
+    // Increase navigation timeout
+    page.setDefaultNavigationTimeout(60000);
+
+    await loginToTwitter(page);
+    await wait(3000);
+
+    console.log(`📄 Opening profile: ${PROFILE_URL}`);
+    await page.goto(PROFILE_URL, { 
+      waitUntil: "domcontentloaded",
+      timeout: 60000 
+    });
+    await wait(5000);
+
+    const results = await scrapeTweets(page);
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `${TARGET_HANDLE}_tweets_${timestamp}.xlsx`;
+
+    const ws = XLSX.utils.json_to_sheet(results);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Tweets");
+    XLSX.writeFile(wb, filename);
+
+    console.log(`✅ Saved ${results.length} rows to ${filename}`);
+  } catch (err) {
+    console.error("Fatal error:", err);
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+})();
